@@ -6,21 +6,45 @@ async def get_wb_price(url: str) -> dict | None:
     if not article:
         return None
 
-    api_url = f"https://card.wb.ru/cards/v1/detail?appType=1&curr=rub&dest=-1257786&nm={article}"
+    api_url = (
+        f"https://card.wb.ru/cards/v1/detail"
+        f"?appType=1&curr=rub&dest=-1257786&nm={article}"
+    )
 
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                      "AppleWebKit/537.36 (KHTML, like Gecko) "
+                      "Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "*/*",
+        "Accept-Language": "ru-RU,ru;q=0.9",
+        "Origin": "https://www.wildberries.ru",
+        "Referer": "https://www.wildberries.ru/",
     }
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(follow_redirects=True) as client:
         try:
-            response = await client.get(api_url, headers=headers, timeout=10)
+            response = await client.get(api_url, headers=headers, timeout=15)
             data = response.json()
 
-            product = data["data"]["products"][0]
-            title = product["name"]
-            price = product["salePriceU"] // 100
-            original_price = product["priceU"] // 100
+            products = data.get("data", {}).get("products", [])
+            if not products:
+                return None
+
+            product = products[0]
+            title = product.get("name", "Без названия")
+
+            sizes = product.get("sizes", [])
+            price = None
+            for size in sizes:
+                price_data = size.get("price", {})
+                if price_data.get("total"):
+                    price = price_data["total"] // 100
+                    break
+
+            if not price:
+                price = product.get("salePriceU", 0) // 100
+
+            original_price = product.get("priceU", 0) // 100
 
             return {
                 "title": title,
@@ -28,7 +52,9 @@ async def get_wb_price(url: str) -> dict | None:
                 "original_price": original_price,
                 "article": article
             }
-        except Exception:
+
+        except Exception as e:
+            print(f"Parser error: {e}")
             return None
 
 
