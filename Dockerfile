@@ -14,7 +14,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Playwright браузер (для JS-сайтов вроде Ozon)
-RUN playwright install chromium --with-deps
+
 
 COPY . .
 
