@@ -1,8 +1,16 @@
 import httpx
 import re
+import traceback
+
+
+def extract_wb_article(url: str) -> str | None:
+    match = re.search(r"/catalog/(\d+)/", url)
+    return match.group(1) if match else None
+
 
 async def get_wb_price(url: str) -> dict | None:
     article = extract_wb_article(url)
+    print(f"Article extracted: {article}")
     if not article:
         return None
 
@@ -24,9 +32,14 @@ async def get_wb_price(url: str) -> dict | None:
     async with httpx.AsyncClient(follow_redirects=True) as client:
         try:
             response = await client.get(api_url, headers=headers, timeout=15)
+            print(f"Status: {response.status_code}")
+            print(f"Body: {response.text[:500]}")
+
             data = response.json()
 
             products = data.get("data", {}).get("products", [])
+            print(f"Products found: {len(products)}")
+
             if not products:
                 return None
 
@@ -46,6 +59,8 @@ async def get_wb_price(url: str) -> dict | None:
 
             original_price = product.get("priceU", 0) // 100
 
+            print(f"Title: {title}, Price: {price}, Original: {original_price}")
+
             return {
                 "title": title,
                 "price": price,
@@ -55,9 +70,5 @@ async def get_wb_price(url: str) -> dict | None:
 
         except Exception as e:
             print(f"Parser error: {e}")
+            traceback.print_exc()
             return None
-
-
-def extract_wb_article(url: str) -> str | None:
-    match = re.search(r"/catalog/(\d+)/", url)
-    return match.group(1) if match else None
