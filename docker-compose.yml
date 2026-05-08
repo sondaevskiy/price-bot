@@ -1,0 +1,161 @@
+version: "3.9"
+
+services:
+
+  # ─── PostgreSQL ────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: price_bot_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       ${POSTGRES_DB:-pricebot}
+      POSTGRES_USER:     ${POSTGRES_USER:-pricebot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pricebot}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - bot_net
+
+  # ─── Redis ────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: price_bot_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - bot_net
+
+  # ─── FastAPI (webhook + API) ───────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: price_bot_api
+    restart: unless-stopped
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
+    env_file: .env
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./app:/app/app:ro
+      - ./logs:/app/logs
+    networks:
+      - bot_net
+
+  # ─── Telegram Bot (polling) ────────────────────────────────────
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: price_bot_telegram
+    restart: unless-stopped
+    command: python -m app.bot
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./app:/app/app:ro
+      - ./logs:/app/logs
+    networks:
+      - bot_net
+
+  # ─── Celery Worker (парсинг цен) ──────────────────────────────
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: price_bot_worker
+    restart: unless-stopped
+    command: celery -A app.tasks worker --loglevel=info --concurrency=4 -Q default,parsers
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./app:/app/app:ro
+      - ./logs:/app/logs
+    networks:
+      - bot_net
+
+  # ─── Celery Beat (планировщик) ────────────────────────────────
+  beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: price_bot_beat
+    restart: unless-stopped
+    command: celery -A app.tasks beat --loglevel=info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./app:/app/app:ro
+    networks:
+      - bot_net
+
+  # ─── Flower (мониторинг Celery, опционально) ──────────────────
+  flower:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: price_bot_flower
+    restart: unless-stopped
+    command: celery -A app.tasks flower --port=5555 --basic_auth=${FLOWER_USER:-admin}:${FLOWER_PASSWORD:-admin}
+    env_file: .env
+    ports:
+      - "5555:5555"
+    depends_on:
+      - redis
+    networks:
+      - bot_net
+
+  # ─── Nginx (reverse proxy + SSL termination) ──────────────────
+  nginx:
+    image: nginx:alpine
+    container_name: price_bot_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+      - ./nginx/certbot:/var/www/certbot:ro
+    depends_on:
+      - api
+    networks:
+      - bot_net
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  bot_net:
+    driver: bridge
