@@ -50,11 +50,23 @@ async def upgrade(message: Message):
 ))
 async def handle_link(message: Message):
     url = message.text.strip()
-    await message.answer(
-        "Ссылка получена, начинаю следить за ценой!\n\n"
-        f"{url}\n\n"
-        "Как только цена изменится — сразу сообщу."
-    )
+    await message.answer("Получаю цену, подожди секунду...")
+
+    from app.parser import get_wb_price
+    result = await get_wb_price(url)
+
+    if result:
+        await message.answer(
+            f"Товар: {result['title']}\n\n"
+            f"Цена сейчас: {result['price']} руб.\n"
+            f"Обычная цена: {result['original_price']} руб.\n\n"
+            "Буду следить и сообщу если подешевеет!"
+        )
+    else:
+        await message.answer(
+            "Не удалось получить цену. Проверь ссылку — она должна вести "
+            "на конкретный товар Wildberries."
+        )
 
 
 async def main():
