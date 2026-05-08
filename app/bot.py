@@ -17,12 +17,22 @@ async def start(message: Message):
         "/upgrade — тарифы"
     )
 
-@dp.message(Command("help"))
-async def help_cmd(message: Message):
-    await message.answer("Отправь ссылку на товар с WB или Ozon и я начну следить за ценой.")
+@dp.message(Command("add"))
+async def add(message: Message):
+    await message.answer(
+        "Отправь ссылку на товар с Wildberries или Ozon.\n\n"
+        "Пример:\n"
+        "https://www.wildberries.ru/catalog/12345678/detail.aspx"
+    )
 
-async def main():
-    await dp.start_polling(bot)
+@dp.message(lambda m: m.text and ("wildberries.ru" in m.text or "ozon.ru" in m.text))
+async def handle_link(message: Message):
+    url = message.text.strip()
+    await message.answer(
+        f"Ссылка получена, начинаю следить за ценой...\n\n"
+        f"Товар: {url}\n\n"
+        "Как только цена изменится — сразу сообщу!"
+    )
 
-if __name__ == "__main__":
-    asyncio.run(main())
+@dp.message(Command("list"))
+async def list_items(message: Me
